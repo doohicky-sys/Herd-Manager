@@ -1,0 +1,28 @@
+{
+  "name": "Guinea Pig Herd Manager",
+  "short_name": "Herd Manager",
+  "description": "Track, breed, care for and rehome your herd.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#dcecdf",
+  "theme_color": "#dcecdf",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

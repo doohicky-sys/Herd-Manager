@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Guinea Pig Herd Manager</title>
+<link rel="stylesheet" href="style.css?v=37">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1c1c1e" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Herd Manager">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+
+</head>
+<body>
+
+<div id="full-loader">
+  <div class="loader-spinner"></div>
+  <div id="loader-text">Loading...</div>
+</div>
+
+<canvas id="confetti-canvas"></canvas>
+
+<div class="photo-viewer" id="photo-viewer" onclick="closeViewerIfBg(event)">
+  <button class="photo-viewer-close" onclick="closePhotoViewer()">&#10005;</button>
+  <img id="pv-img" src="" alt="Full size photo">
+  <div class="photo-viewer-hint">Pinch or scroll to zoom &middot; drag to pan</div>
+</div>
+
+<div id="splash" class="splash" aria-hidden="true">
+  <div class="splash-stage">
+    <svg class="splash-pig" viewBox="0 0 220 150" width="176" height="120" role="img" aria-label="">
+      <g class="pig-body">
+        <ellipse cx="118" cy="80" rx="72" ry="46" fill="#C8813F" stroke="#3B2A21" stroke-width="7"/>
+        <path d="M 46 80 C 46 46, 66 28, 88 26 C 98 25, 101 33, 100 42 C 97 66, 95 92, 96 106 C 97 124, 83 136, 68 135 C 52 134, 46 112, 46 80 Z"
+              fill="#F7EFE3" stroke="#3B2A21" stroke-width="7"/>
+        <path d="M 104 40 C 111 26, 132 23, 140 34 C 147 44, 137 56, 124 57 C 112 58, 99 50, 104 40 Z"
+              fill="#AE6730" stroke="#3B2A21" stroke-width="7"/>
+        <circle cx="76" cy="66" r="7" fill="#3B2A21"/>
+        <path d="M 49 74 C 43 71, 43 81, 51 79 Z" fill="#E4A18F" stroke="#3B2A21" stroke-width="4"/>
+        <g class="pig-feet">
+          <ellipse cx="86" cy="124" rx="13" ry="7" fill="#EFC6A4" stroke="#3B2A21" stroke-width="5"/>
+          <ellipse cx="146" cy="124" rx="13" ry="7" fill="#EFC6A4" stroke="#3B2A21" stroke-width="5"/>
+        </g>
+      </g>
+    </svg>
+    <div class="splash-word">Herd Manager</div>
+  </div>
+</div>
+<a href="#main" class="skip-link">Skip to content</a>
+<div class="sheet-backdrop" id="sheet-backdrop" onclick="closeSheet()"></div>
+<div class="sheet" id="add-sheet" role="dialog" aria-modal="true" aria-label="Add pigs">
+  <div class="sheet-grab" aria-hidden="true"></div>
+  <div class="sheet-title">Add to the herd</div>
+  <button class="sheet-item" onclick="closeAddChoice();openAdd()"><span class="si" aria-hidden="true">&#128057;</span><div><div>Add one pig</div><div class="sheet-sub">Full profile, photo and family links</div></div></button>
+  <button class="sheet-item" onclick="closeAddChoice();navGo('bulk')"><span class="si" aria-hidden="true">&#128230;</span><div><div>Bulk intake</div><div class="sheet-sub">Add many at once from a list</div></div></button>
+</div>
+<div class="sheet" id="more-sheet" role="dialog" aria-modal="true" aria-label="More options">
+  <div class="sheet-grab" aria-hidden="true"></div>
+  <div class="sheet-title">&#128057; More</div>
+  <button class="pill busy" id="spill" onclick="toggleLog()" aria-live="polite" aria-atomic="true" style="margin-bottom:10px">
+    <span class="dot" id="sdot"></span><span id="smsg">Starting&#8230;</span>
+  </button>
+  <div class="logbox" id="logbox"></div>
+  <button class="sheet-item" onclick="closeSheet();navGo('breeding')"><span class="si">&#10003;</span>Breeding checker</button>
+  <button class="sheet-item" onclick="closeSheet();navGo('rehoming')"><span class="si">&#128203;</span>Rehoming board</button>
+  <button class="sheet-item" onclick="closeSheet();navGo('rainbow')"><span class="si">&#127752;</span>Rainbow bridge</button>
+  <button class="sheet-item" onclick="closeSheet();navGo('rehomed')"><span class="si">&#127968;</span>Rehomed</button>
+  <button class="sheet-item" onclick="closeSheet();navGo('bulk')"><span class="si">&#128230;</span>Bulk intake</button>
+  <button class="sheet-item" onclick="closeSheet();navGo('trash')"><span class="si">&#128465;</span>Recently deleted</button>
+  <label class="sheet-item" style="cursor:pointer">
+    <span class="si">&#8593;</span>Import backup JSON
+    <input type="file" accept=".json" id="importfile" style="display:none" onchange="handleImportFile(event)">
+  </label>
+  <button class="sheet-item" onclick="closeSheet();doExport()"><span class="si">&#8595;</span>Export backup</button>
+  <button class="sheet-item" onclick="closeSheet();printHerdSheet()"><span class="si">&#128424;</span>Print quick-reference</button>
+  <button class="sheet-item" onclick="closeSheet();openHerdDetails()"><span class="si" aria-hidden="true">&#127991;</span>Herd &amp; breeder details</button>
+  <button class="sheet-item" onclick="closeSheet();checkPhotoHealth()"><span class="si" aria-hidden="true">&#128247;</span>Check for broken photos</button>
+  <button class="sheet-item" onclick="closeSheet();optimisePhotos()"><span class="si">&#129704;</span>Optimise photos (one-time)</button>
+  <button class="sheet-item" onclick="closeSheet();forceCloudPull()"><span class="si">&#8635;</span>Pull latest from cloud</button>
+  <button class="sheet-item" onclick="forceUpdate()"><span class="si" aria-hidden="true">&#128260;</span>Force update (clear cache &amp; reload)</button>
+  <div class="build-stamp" id="build-stamp"></div>
+</div>
+
+<nav class="bnav" id="bnav" aria-label="Main navigation">
+  <button class="bnav-item active" data-nav="herd" onclick="navGo('herd')" aria-label="Herd" aria-current="page"><span class="bi" aria-hidden="true">&#128057;</span><span class="bl">Herd</span></button>
+  <button class="bnav-item" data-nav="dashboard" onclick="navGo('dashboard')" aria-label="Dashboard"><span class="bi" aria-hidden="true">&#128202;</span><span class="bl">Dashboard</span></button>
+  <button class="bnav-add" onclick="openAddChoice()" aria-label="Add pigs" aria-haspopup="dialog"><span aria-hidden="true">&#65291;</span></button>
+  <button class="bnav-item" data-nav="familytree" onclick="navGo('familytree')" aria-label="Family tree"><span class="bi" aria-hidden="true">&#127795;</span><span class="bl">Family</span></button>
+  <button class="bnav-item" data-nav="more" onclick="openSheet()" aria-label="More options" aria-haspopup="dialog"><span class="bi" aria-hidden="true">&#8943;</span><span class="bl">More</span></button>
+</nav>
+
+<main class="app" id="main">
+  <div class="topbar">
+    <div class="tb-left"></div>
+    <div class="tb-center">
+      <h1>&#128057; Herd Manager</h1>
+    </div>
+    <div class="tb-right"><span class="ver-badge" id="ver-badge" title="App version">&nbsp;</span></div>
+  </div>
+  <div class="bigtitle" id="page-title">My herd</div>
+
+  <div id="ptr-indicator"><div class="ptr-spinner" id="ptr-spinner"></div><span id="ptr-text">Pull to refresh</span></div>
+
+  <div id="pane-herd" class="tab-pane">
+    <div id="spotlight-container"></div>
+    <div class="stats" id="stats"></div>
+    <div class="toolbar">
+      <label class="sr-only" for="fsearch">Search pigs</label>
+      <div class="search-wrap">
+        <input type="search" id="fsearch" placeholder="Search name, breed, description&#8230;" oninput="debouncedGrid()" aria-describedby="grid-count">
+        <button type="button" id="fsearch-clear" class="search-clear" onclick="clearSearch()" aria-label="Clear search" style="display:none">&#10005;</button>
+      </div>
+      <button type="button" class="filter-btn" id="filter-btn" onclick="openFilterSheet()" aria-haspopup="dialog">
+        <span aria-hidden="true">&#9776;</span> <span id="filter-btn-label">Filter</span>
+      </button>
+    </div>
+    <!-- The selects still exist (all the render logic reads them) but now live
+         inside the filter sheet rather than eating two rows of the home screen. -->
+    <div class="sheet" id="filter-sheet" role="dialog" aria-modal="true" aria-label="Filter and sort">
+      <div class="sheet-grab" aria-hidden="true"></div>
+      <div class="sheet-title">Filter &amp; sort</div>
+      <div class="fs-field"><label for="fsex">Sex</label>
+        <select id="fsex" onchange="applyFilters()"><option value="">All sexes</option><option value="female">Sows</option><option value="male">Boars</option></select></div>
+      <div class="fs-field"><label for="froan">Roan</label>
+        <select id="froan" onchange="applyFilters()"><option value="">All roan status</option><option value="yes">Roan carrier</option><option value="no">Non-roan</option></select></div>
+      <div class="fs-field"><label for="fst">Herd status</label>
+        <select id="fst" onchange="applyFilters()"><option value="">All status</option><option value="stock">Stock</option><option value="rehome">For rehome</option></select></div>
+      <div class="fs-field"><label for="fsort">Sort by</label>
+        <select id="fsort" onchange="applyFilters()"><option value="recent">Recently added</option><option value="name">Name A&ndash;Z</option><option value="young">Youngest first</option><option value="old">Oldest first</option></select></div>
+      <div class="fs-actions">
+        <button class="btn btnsm" onclick="resetFilters()">Reset</button>
+        <button class="btn btnp btnsm" onclick="closeFilterSheet()">Show results</button>
+      </div>
+    </div>
+    <div class="filter-chips" id="filter-chips"></div>
+    <div id="grid-count" class="grid-count" role="status" aria-live="polite"></div>
+    <div class="grid" id="grid"></div>
+  </div>
+  <div id="pane-dashboard" class="tab-pane" style="display:none">
+    <div id="recent-strip" class="recent-strip" style="display:none"></div>
+    <div class="viz-grid" id="viz-grid"></div>
+    <div class="milestones-panel">
+      <h3>&#128197; Upcoming milestones</h3>
+      <div id="milestone-list"></div>
+    </div>
+    <div class="milestones-panel">
+      <h3>&#129658; Data health check</h3>
+      <div id="health-list"></div>
+    </div>
+    <div class="activity-panel">
+      <h3 style="font-size:13px;font-weight:700;margin-bottom:6px">&#128221; Recent activity</h3>
+      <div id="activity-list"></div>
+    </div>
+    <button class="btn btnp" style="margin-top:18px" onclick="printHerdSheet()">&#128424; Print herd quick-reference</button>
+  </div>
+  <div id="pane-familytree" class="tab-pane" style="display:none">
+    <p class="intro">&#127795; Pick a pig to see their family tree, built automatically from the family members tagged on each profile.</p>
+    <div class="tree-picker">
+      <div class="f"><label class="sr-only" for="ft-search">Search pigs</label>
+        <input type="search" id="ft-search" placeholder="Search for a pig&#8230;" oninput="filterTreeOptions()"></div>
+      <div class="f"><label class="sr-only" for="ft-select">View tree for</label>
+        <select id="ft-select" onchange="renderFamilyTree()"><option value="">Select a pig&#8230;</option></select></div>
+    </div>
+    <div id="familytree-container"></div>
+  </div>
+  <div id="pane-bulk" class="tab-pane" style="display:none">
+    <p class="intro">&#128230; Add many pigs at once. Set the defaults that apply to everyone, then either fill in the quick rows or paste a list. Nothing is saved until you confirm the preview.</p>
+    <div class="bulk-defaults">
+      <div class="f"><label>Sex for all</label><select id="bulk-sex"><option value="female" selected>Female</option><option value="male">Male</option></select></div>
+      <div class="f"><label>Status for all</label><select id="bulk-status"><option value="stock" selected>Stock</option><option value="rehome">For rehome</option></select></div>
+      <div class="f"><label>Roan for all</label><select id="bulk-roan"><option value="no" selected>Non-roan</option><option value="yes">Roan carrier</option></select></div>
+      <div class="f"><label>Note added to all (optional)</label><input id="bulk-batchnote" placeholder="e.g. Intake July 2026"></div>
+    </div>
+    <div class="bulk-mode-toggle">
+      <button class="btn btnsm bulk-mode-btn active" id="bulk-mode-rows-btn" onclick="bulkSetMode('rows')">Quick rows</button>
+      <button class="btn btnsm bulk-mode-btn" id="bulk-mode-paste-btn" onclick="bulkSetMode('paste')">Paste a list</button>
+    </div>
+    <div id="bulk-rows-area">
+      <div class="bulk-rows-head"><span>Name*</span><span>DOB or age</span><span>Breed</span><span>Description</span><span></span></div>
+      <div id="bulk-rows"></div>
+      <button class="btn btnsm" onclick="bulkAddRows(5)" style="margin-top:8px">+ Add 5 more rows</button>
+      <p class="bulk-hint">Age accepts things like <code>2y</code>, <code>6m</code>, <code>2y 3m</code>, <code>1.5y</code> or a date like <code>2024-03-01</code> / <code>01/03/2024</code>. Only Name is required.</p>
+    </div>
+    <div id="bulk-paste-area" style="display:none">
+      <div class="f"><label>One pig per line: Name, DOB or age, Breed, Description</label>
+      <textarea id="bulk-paste" rows="12" placeholder="Marmalade, 2y, Abyssinian, ginger with rosettes&#10;Petal, 6m, Smooth, tri-colour&#10;Willow, 01/03/2024, Teddy, chocolate self"></textarea></div>
+      <p class="bulk-hint">Commas or tabs both work (tabs = pasted straight from a spreadsheet). Missing columns are fine &mdash; even just a name per line works.</p>
+    </div>
+    <button class="btn btnp" style="margin-top:12px" onclick="bulkPreview()">Preview intake</button>
+    <div id="bulk-preview"></div>
+  </div>
+  <div id="pane-rehoming" class="tab-pane" style="display:none">
+    <p class="intro">&#128203; Every pig marked "for rehome" moves through this pipeline. Tap a card to open their profile and manage details there.</p>
+    <div class="board-money" id="board-money"></div>
+    <div class="board" id="board"></div>
+  </div>
+  <div id="pane-trash" class="tab-pane" style="display:none">
+    <p class="intro">&#128465; Deleted pigs are kept here for 30 days, then removed permanently. Restore anytime before then.</p>
+    <div id="trash-list"></div>
+  </div>
+  <div id="pane-rainbow" class="tab-pane" style="display:none">
+    <p class="intro">&#127752; Pigs marked as passed rest here. Records are preserved but separated from the active herd.</p>
+    <div class="grid" id="rbgrid"></div>
+  </div>
+  <div id="pane-rehomed" class="tab-pane" style="display:none">
+    <p class="intro">&#127968; Pigs that have been rehomed live here. Records are kept for reference.</p>
+    <div class="grid" id="rhgrid"></div>
+  </div>
+  <div id="pane-breeding" class="tab-pane" style="display:none">
+    <div class="bpanel">
+      <h2 style="font-size:18px;font-weight:500;margin-bottom:8px">Breeding checker</h2>
+      <p>Select a sow and boar to check for Roan or relation conflicts before pairing.</p>
+      <div class="f"><label>Sow</label><select id="bsow" onchange="checkBreed()"><option value="">Select sow&#8230;</option></select></div>
+      <div class="f"><label>Boar</label><select id="bboar" onchange="checkBreed()"><option value="">Select boar&#8230;</option></select></div>
+      <div id="bres"></div>
+    </div>
+  </div>
+</main>
+
+<div class="ov" id="ov-detail" onclick="cbg(event,'ov-detail')"><div class="modal modal-profile" id="md"></div></div>
+<div class="ov" id="ov-edit" onclick="cbg(event,'ov-edit')"><div class="modal" id="me"></div></div>
+<div class="ov" id="ov-add" onclick="cbg(event,'ov-add')"><div class="modal" id="ma"></div></div>
+
+
+<div id="print-sheet"></div>
+
+<script src="js/01-core.js?v=37"></script>
+<script src="js/02-photos.js?v=37"></script>
+<script src="js/03-storage.js?v=37"></script>
+<script src="js/04-family.js?v=37"></script>
+<script src="js/05-bulk.js?v=37"></script>
+<script src="js/06-features.js?v=37"></script>
+<script src="js/07-dashboard.js?v=37"></script>
+<script src="js/08-tools.js?v=37"></script>
+<script src="js/09-render.js?v=37"></script>
+<script src="js/10-profile.js?v=37"></script>
+<script src="js/11-app.js?v=37"></script>
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(()=>{}));
+}
+</script>
+</body>
+</html>
