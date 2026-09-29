@@ -193,7 +193,17 @@ async function checkPhotoHealth() {
 // doesn't retroactively fix animals that already have one saved from
 // before the fix — this finds those and tries to properly upload them now.
 function findEmbeddedPhotos() {
-  return pigs.filter(p => !p.deleted && ((p.photo && p.photo.startsWith("data:image")) || (p.photoThumb && p.photoThumb.startsWith("data:image"))));
+  // Deliberately does NOT exclude p.deleted (trashed) animals. saveLocal()
+  // serialises the WHOLE `pigs` array on every single app boot — trash is
+  // just a soft-delete flag (p.deleted = true), not a separate array the
+  // animal moves out of — so a trashed pig with an old embedded base64
+  // photo keeps getting written into local storage on every load exactly
+  // as much as an active one does. Excluding it here used to mean this
+  // tool could report "all clean" while a trashed record was still the
+  // actual thing filling up the device — real, confirmed cause of a
+  // storage-full error recurring on a device after this cleanup had
+  // already been run and appeared to succeed.
+  return pigs.filter(p => (p.photo && p.photo.startsWith("data:image")) || (p.photoThumb && p.photoThumb.startsWith("data:image")));
 }
 async function cleanUpEmbeddedPhotos() {
   const targets = findEmbeddedPhotos();

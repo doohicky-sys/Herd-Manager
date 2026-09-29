@@ -129,12 +129,31 @@ function loadLocal() {
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
+// Entry point called once the page loads. It no longer starts the app
+// directly — first it checks whether this device already has a valid,
+// signed-in Supabase session. If not, the login gate is shown and the rest
+// of boot is held back entirely: nothing here should reach the herd's data
+// (locally or in the cloud) before someone has actually signed in, since
+// with Row Level Security on, the cloud calls would just fail anyway, and
+// showing the app shell first would leak that there IS data even to someone
+// who can't sign in. bootAppAfterAuth() (below) is what actually runs the
+// boot sequence, and js/00-auth.js calls it directly the moment a sign-in
+// succeeds, so this device never needs a manual reload after logging in.
 async function init() {
   addLog(`Herd Manager ${APP_VERSION} starting`);
   const stamp = document.getElementById("build-stamp");
   if (stamp) stamp.textContent = `Version ${APP_VERSION}`;
   const badge = document.getElementById("ver-badge");
   if (badge) badge.textContent = APP_VERSION;
+  const session = typeof authGetSession === "function" ? await authGetSession() : null;
+  if (!session) {
+    if (typeof showLoginGate === "function") showLoginGate();
+    else addLog("Login gate unavailable — auth module failed to load");
+    return;
+  }
+  await bootAppAfterAuth();
+}
+async function bootAppAfterAuth() {
   navGo("herd");
   setSync("Loading…", "busy");
   const hadLocal = loadLocal();
@@ -271,14 +290,36 @@ async function checkStaleSilently(warnOnly) {
 }
 window.addEventListener("pagehide", () => {
   if (!pendingSave) return;
-  // Last resort: sendBeacon survives the page being torn down
+  // Last resort: the page is being torn down right now, so this can't be an
+  // ordinary awaited fetch. sendBeacon() used to be used here, but it only
+  // supports a plain URL + body — there is no way to attach a custom
+  // Authorization header to it. That was fine when every request used the
+  // shared public anon key as a query-string parameter, but now that access
+  // requires a real per-session bearer token (see js/00-auth.js), a beacon
+  // call has no way to authenticate at all and would just fail silently
+  // (beacon responses aren't even readable by the page, so this would have
+  // looked like it worked while quietly saving nothing). fetch's
+  // `keepalive: true` is the correct replacement: it gives the same
+  // survives-page-teardown guarantee as sendBeacon, but is a normal fetch
+  // call that can carry a real Authorization header and, being a same
+  // Promise-returning call, can reuse authSession directly without an
+  // extra refresh round-trip triggered by a page that's already closing.
   try {
-    const body = JSON.stringify([{ id: 1, data: { pigs, pairings, activity, snapshots, locations }, updated_at: new Date().toISOString() }]);
-    navigator.sendBeacon?.(
-      `${SUPA_URL}/rest/v1/herd?on_conflict=id&apikey=${encodeURIComponent(SUPA_KEY)}`,
-      new Blob([body], { type: "application/json" })
-    );
-    addLog("pagehide — beacon save attempted");
+    if (!authSession || !authSession.access_token) return; // not signed in — nothing to save
+    const nextRev = (lastKnownRev !== null ? lastKnownRev : 0) + 1;
+    const body = JSON.stringify([{ id: 1, data: { pigs, pairings, activity, snapshots, locations }, updated_at: new Date().toISOString(), rev: nextRev }]);
+    fetch(`${SUPA_URL}/rest/v1/herd?on_conflict=id`, {
+      method: "POST",
+      headers: {
+        "apikey": SUPA_KEY,
+        "Authorization": `Bearer ${authSession.access_token}`,
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates,return=minimal"
+      },
+      body,
+      keepalive: true
+    }).catch(() => {}); // page is already gone — nothing left to react to a failure with
+    addLog("pagehide — keepalive save attempted");
   } catch(e) { /* nothing more we can do at this point */ }
 });
 
@@ -326,14 +367,26 @@ async function forceCloudPull(silent) {
 // Records a short trail of who-did-what so two editors can see recent changes
 async function silentSnapshotSync() {
   try {
-    const cur = await supaReq("GET", "/herd?id=eq.1&select=data,updated_at");
+    const cur = await supaReq("GET", "/herd?id=eq.1&select=data,updated_at,rev");
     const row = Array.isArray(cur) && cur[0] ? cur[0] : null;
     const cloudData = row ? row.data : {};
+    const cloudRev = row && typeof row.rev === "number" ? row.rev : null;
     // Merge just the snapshots array into whatever is currently in the cloud,
     // rather than overwriting pigs/pairings/activity with our local copy —
     // this can never clobber a partner's concurrent edit.
     const merged = { ...cloudData, snapshots };
-    await supaReq("POST", "/herd?on_conflict=id", [{ id: 1, data: merged, updated_at: row ? row.updated_at : new Date().toISOString() }]);
+    // This write must still carry the row's current `rev` forward unchanged
+    // (not omit it, and not bump it) — omitting it here used to blank the
+    // column out on every quiet daily-snapshot sync, which then corrupted
+    // the NEXT real cloudWrite()'s conflict check: with `rev` gone, that
+    // check silently fell back to comparing timestamps, exactly the
+    // weaker check `rev` was added to replace. Keeping it identical here
+    // preserves the guarantee without this quiet, no-conflict-check path
+    // needing an actual increment of its own.
+    const nextRev = cloudRev !== null ? cloudRev : ((lastKnownRev !== null ? lastKnownRev : 0) + 1);
+    await supaReq("POST", "/herd?on_conflict=id", [{ id: 1, data: merged, updated_at: row ? row.updated_at : new Date().toISOString(), rev: nextRev }]);
+    lastKnownRev = nextRev;
+    if (row) lastKnownUpdatedAt = row.updated_at;
     addLog("Daily snapshot synced quietly (no conflict check needed)");
   } catch(e) {
     addLog(`Snapshot sync skipped: ${e.message}`);

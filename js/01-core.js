@@ -1,4 +1,4 @@
-const APP_VERSION = "v45.2";
+const APP_VERSION = "v46.1";
 // True when running as an installed home-screen app on iOS/iPadOS (not an
 // ordinary Safari tab). Real, confirmed reason this matters: iOS keeps a
 // home-screen app's storage completely separate from Safari's — even
@@ -19,9 +19,12 @@ const SUPA_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIs
 // IMGBB_KEY removed — it now lives ONLY server-side, in the Cloudflare Pages
 // environment variable of the same name, read inside functions/imgbb-upload.js.
 // See that file for the proxy that 02-photos.js now calls instead of ImgBB
-// directly. NOTE: the Supabase anon key above is designed to be public and
-// is safe only once Row Level Security is enabled on the `herd` table — that
-// is still an open item, tracked separately from this fix.
+// directly. NOTE: the Supabase anon key above is designed to be public and,
+// per Supabase's own model, it is meant to stay world-readable — the anon
+// key is not a secret. What actually protects the data is Row Level
+// Security (RLS) on the `herd` table plus real sign-in (see js/00-auth.js):
+// once RLS is on, this key alone grants no access at all — every request
+// also needs a valid user session token, obtained by signing in.
 const LOCAL_KEY = "gp_local_v13";
 
 // ── Species config (additive multi-species foundation) ──────────────────────
@@ -821,9 +824,19 @@ function hideLoader() {
 
 async function supaReq(method, path, body) {
   const url = `${SUPA_URL}/rest/v1${path}`;
+  // The anon key still goes in the "apikey" header — Supabase requires that
+  // on every request regardless of auth state, it's how it knows which
+  // project you mean. What actually authorises the request now is the
+  // "Authorization" bearer token: a signed-in user's own session token,
+  // not the shared public key. authGetSession() returns null if nobody's
+  // signed in (or refreshes an expiring token if they are), so a request
+  // made with no valid session fails fast with a clear error rather than
+  // silently falling back to the old shared-key behaviour.
+  const session = typeof authGetSession === "function" ? await authGetSession() : null;
+  if (!session) throw new Error("Not signed in");
   const headers = {
     "apikey": SUPA_KEY,
-    "Authorization": `Bearer ${SUPA_KEY}`,
+    "Authorization": `Bearer ${session.access_token}`,
     "Content-Type": "application/json",
     "Prefer": method === "POST" ? "resolution=merge-duplicates,return=minimal" : "return=minimal"
   };
@@ -837,6 +850,16 @@ async function supaReq(method, path, body) {
     clearTimeout(timer);
     const txt = await r.text();
     addLog(`HTTP ${r.status} — ${txt.substring(0, 80)}`);
+    if (r.status === 401 || r.status === 403) {
+      // Session token was rejected outright (revoked, or RLS denied it) —
+      // this device is not actually signed in as far as the server's
+      // concerned, whatever authSession still holds locally. Force back to
+      // the login gate rather than looping on requests that will never
+      // succeed.
+      if (typeof authSaveSession === "function") authSaveSession(null);
+      if (typeof showLoginGate === "function") showLoginGate("Your session expired — please sign in again.");
+      throw new Error(`HTTP ${r.status}: session expired or not authorised`);
+    }
     if (!r.ok) throw new Error(`HTTP ${r.status}: ${txt.substring(0, 120)}`);
     return txt ? JSON.parse(txt) : null;
   } catch(e) {
@@ -846,11 +869,13 @@ async function supaReq(method, path, body) {
   }
 }
 
+let lastKnownRev = null;
 async function cloudRead() {
-  // GET /herd?id=eq.1&select=data
-  const res = await supaReq("GET", "/herd?id=eq.1&select=data,updated_at");
+  // GET /herd?id=eq.1&select=data,rev
+  const res = await supaReq("GET", "/herd?id=eq.1&select=data,updated_at,rev");
   if (Array.isArray(res) && res.length > 0 && res[0].data) {
     lastKnownUpdatedAt = res[0].updated_at || null;
+    lastKnownRev = typeof res[0].rev === "number" ? res[0].rev : null;
     const d = res[0].data;
     // Backward compatible: older saves stored a plain pigs array directly
     if (Array.isArray(d)) return { pigs: d, pairings: [], activity: [] };
@@ -869,21 +894,35 @@ function payloadSig(s){ let h=0; for(let i=0;i<s.length;i++){h=(h*31+s.charCodeA
 async function cloudWrite(pigsData, pairingsData, activityData) {
   // ── Conflict guard ──────────────────────────────────────────────────────
   // The whole herd is saved as one blob, so if two people edit at once the
-  // last save would silently erase the other's work. Before writing, check
-  // whether the cloud copy changed since WE last loaded it.
+  // last save would silently erase the other's work. This used to compare
+  // the row's `updated_at` timestamp, but two writes landing within the
+  // same clock tick (or a clock skewed between devices) could both read the
+  // same timestamp and both believe they were first — a real gap in an
+  // optimistic-concurrency check. `rev` is an integer that only this
+  // function increments, by exactly 1, on every successful write, so "did
+  // it change since I read it" becomes an exact integer comparison instead
+  // of a timestamp that two different writers could coincidentally share.
+  // Falls back to the old timestamp comparison only if `rev` genuinely
+  // isn't available yet (e.g. this row was read before the column existed
+  // in this session), so a partial rollout never leaves the guard disabled.
   try {
-    const cur = await supaReq("GET", "/herd?id=eq.1&select=updated_at");
-    const curAt = Array.isArray(cur) && cur[0] ? cur[0].updated_at : null;
-    if (curAt && lastKnownUpdatedAt && curAt !== lastKnownUpdatedAt) {
+    const cur = await supaReq("GET", "/herd?id=eq.1&select=updated_at,rev");
+    const row = Array.isArray(cur) && cur[0] ? cur[0] : null;
+    const curAt = row ? row.updated_at : null;
+    const curRev = row && typeof row.rev === "number" ? row.rev : null;
+    const revKnown = lastKnownRev !== null && curRev !== null;
+    const changed = revKnown ? curRev !== lastKnownRev
+                              : (curAt && lastKnownUpdatedAt && curAt !== lastKnownUpdatedAt);
+    if (changed) {
       // A conflict genuinely CAN mean a real partner edit — but if this
-      // device's local storage isn't working, lastKnownUpdatedAt never
-      // survives between app loads either, so every fresh load looks like
-      // a "conflict" even with nobody else involved. If it isn't working,
-      // report the REAL, DIRECTLY-MEASURED localStorage usage for this site
-      // (not navigator.storage.estimate() — confirmed that API does not
-      // cover localStorage at all in Chrome/Firefox, so it was reporting an
-      // unrelated system's numbers and calling them relevant here, which
-      // was genuinely misleading rather than just imprecise).
+      // device's local storage isn't working, lastKnownRev/lastKnownUpdatedAt
+      // never survive between app loads either, so every fresh load looks
+      // like a "conflict" even with nobody else involved. If it isn't
+      // working, report the REAL, DIRECTLY-MEASURED localStorage usage for
+      // this site (not navigator.storage.estimate() — confirmed that API
+      // does not cover localStorage at all in Chrome/Firefox, so it was
+      // reporting an unrelated system's numbers and calling them relevant
+      // here, which was genuinely misleading rather than just imprecise).
       let storageNote = "";
       try {
         localStorage.setItem("__gp_probe__", "1"); localStorage.removeItem("__gp_probe__");
@@ -911,6 +950,11 @@ async function cloudWrite(pigsData, pairingsData, activityData) {
         throw new Error("CONFLICT_PULLED");
       }
       addLog("Conflict overridden — local version kept");
+      // Re-read the current rev so the write below targets the row as it
+      // actually stands right now, rather than immediately re-triggering
+      // this same conflict check against a rev we already know is stale.
+      lastKnownRev = curRev;
+      lastKnownUpdatedAt = curAt;
     }
   } catch(e) {
     if (e.message === "CONFLICT_PULLED") throw e;
@@ -921,8 +965,10 @@ async function cloudWrite(pigsData, pairingsData, activityData) {
   const sig = payloadSig(JSON.stringify(payload));
   if (sig === lastPayloadSig) { addLog("No changes since last sync — skipping upload"); return; }
   const stamp = new Date().toISOString();
-  await supaReq("POST", "/herd?on_conflict=id", [{ id: 1, data: payload, updated_at: stamp }]);
+  const nextRev = (lastKnownRev !== null ? lastKnownRev : 0) + 1;
+  await supaReq("POST", "/herd?on_conflict=id", [{ id: 1, data: payload, updated_at: stamp, rev: nextRev }]);
   lastKnownUpdatedAt = stamp;
+  lastKnownRev = nextRev;
   lastPayloadSig = sig;
 }
 

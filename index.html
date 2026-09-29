@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Herd Manager</title>
-<link rel="stylesheet" href="style.css?v=45.2">
-<link rel="manifest" href="manifest.webmanifest?v=45.2">
+<link rel="stylesheet" href="style.css?v=46.1">
+<link rel="manifest" href="manifest.webmanifest?v=46.1">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#1c1c1e" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -49,6 +49,27 @@
     <div class="splash-word">Herd Manager</div>
   </div>
 </div>
+
+<div id="login-gate" class="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title">
+  <form class="login-card" id="login-form" onsubmit="handleLoginSubmit(event)">
+    <div class="login-brand">
+      <span class="login-brand-icon" aria-hidden="true">&#128057;</span>
+      <h1 id="login-title">Herd Manager</h1>
+    </div>
+    <p class="login-sub">Sign in to see and edit the herd.</p>
+    <div id="login-error" class="login-error" role="alert" style="display:none"></div>
+    <div class="f">
+      <label for="login-email">Email</label>
+      <input type="email" id="login-email" name="email" autocomplete="username" required inputmode="email">
+    </div>
+    <div class="f">
+      <label for="login-password">Password</label>
+      <input type="password" id="login-password" name="password" autocomplete="current-password" required>
+    </div>
+    <button type="submit" class="btn btnp login-submit" id="login-submit">Sign in</button>
+  </form>
+</div>
+
 <a href="#main" class="skip-link">Skip to content</a>
 <div class="sheet-backdrop" id="sheet-backdrop"></div>
 <div class="sheet" id="add-sheet" role="dialog" aria-modal="true" aria-label="Add animals">
@@ -89,6 +110,7 @@
   <button class="sheet-item" onclick="closeSheet();optimisePhotos()"><span class="si" id="icon-optimise"></span>Optimise photos (one-time)</button>
   <button class="sheet-item" onclick="closeSheet();forceCloudPull()"><span class="si">&#8635;</span>Pull latest from cloud</button>
   <button class="sheet-item" onclick="forceUpdate()"><span class="si" id="icon-refresh" aria-hidden="true"></span>Force update (clear cache &amp; reload)</button>
+  <button class="sheet-item" onclick="closeSheet();handleSignOut()"><span class="si" aria-hidden="true">&#128274;</span>Sign out</button>
 
   <div class="build-stamp" id="build-stamp"></div>
 </div>
@@ -289,20 +311,21 @@
 
 <div id="print-sheet"></div>
 
-<script src="js/01-core.js?v=45.2"></script>
-<script src="js/02-photos.js?v=45.2"></script>
-<script src="js/03-storage.js?v=45.2"></script>
-<script src="js/04-family.js?v=45.2"></script>
-<script src="js/05-bulk.js?v=45.2"></script>
-<script src="js/06-features.js?v=45.2"></script>
-<script src="js/12-pairings.js?v=45.2"></script>
-<script src="js/13-health.js?v=45.2"></script>
-<script src="js/14-locations.js?v=45.2"></script>
-<script src="js/07-dashboard.js?v=45.2"></script>
-<script src="js/08-tools.js?v=45.2"></script>
-<script src="js/09-render.js?v=45.2"></script>
-<script src="js/10-profile.js?v=45.2"></script>
-<script src="js/11-app.js?v=45.2"></script>
+<script src="js/00-auth.js?v=46.1"></script>
+<script src="js/01-core.js?v=46.1"></script>
+<script src="js/02-photos.js?v=46.1"></script>
+<script src="js/03-storage.js?v=46.1"></script>
+<script src="js/04-family.js?v=46.1"></script>
+<script src="js/05-bulk.js?v=46.1"></script>
+<script src="js/06-features.js?v=46.1"></script>
+<script src="js/12-pairings.js?v=46.1"></script>
+<script src="js/13-health.js?v=46.1"></script>
+<script src="js/14-locations.js?v=46.1"></script>
+<script src="js/07-dashboard.js?v=46.1"></script>
+<script src="js/08-tools.js?v=46.1"></script>
+<script src="js/09-render.js?v=46.1"></script>
+<script src="js/10-profile.js?v=46.1"></script>
+<script src="js/11-app.js?v=46.1"></script>
 <script>
 // ── Service worker update detection ──────────────────────────────────────
 // Real bug this fixes: a service worker only checks for updates to ITSELF
